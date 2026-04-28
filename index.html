@@ -63,9 +63,12 @@
 <div id="buttons">
   <button id="resetView">↺ Vue</button>
   <button id="fsBtn">⛶ Plein écran</button>
+  <button id="exportBtn">📦 GLB</button>
+  <a href="ar.html" style="text-decoration:none"><button>📱 RA</button></a>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
 <script>
 (function(){
   // ============ SETUP ============
@@ -105,7 +108,7 @@
     leather:  new THREE.MeshStandardMaterial({ color: 0x8b4f2b, roughness: 0.55 }),
     brass:    new THREE.MeshStandardMaterial({ color: 0xc49559, roughness: 0.3, metalness: 0.7 }),
     rug:      new THREE.MeshStandardMaterial({ color: 0x8b3a24, roughness: 0.95 }),
-    glass:    new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.05, transmission: 0.85, thickness: 0.4, ior: 1.5 }),
+    glass:    new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.05, transmission: 0.85 }),
     black:    new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.6 }),
     mug:      new THREE.MeshStandardMaterial({ color: 0xfafaf2, roughness: 0.4 }),
     cushion:  new THREE.MeshStandardMaterial({ color: 0xb89a6e, roughness: 0.85 }),
@@ -194,7 +197,7 @@
   // Glass material for windows/door — clear/transparent
   const winGlass = new THREE.MeshPhysicalMaterial({
     color: 0xeef5f8, roughness: 0.02, transmission: 0.95,
-    thickness: 0.05, ior: 1.5, side: THREE.DoubleSide,
+    side: THREE.DoubleSide,
     transparent: true, opacity: 0.35
   });
 
@@ -984,6 +987,33 @@
     } else {
       document.exitFullscreen?.();
     }
+  });
+
+  // Export to GLB (for AR / model-viewer)
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    const btn = document.getElementById('exportBtn');
+    const oldText = btn.textContent;
+    btn.textContent = '⏳ Export…';
+    // Temporarily scale scene for AR-friendly default size (1:10 → ~1m model)
+    scene.scale.set(0.1, 0.1, 0.1);
+    const exporter = new THREE.GLTFExporter();
+    exporter.parse(scene, (result) => {
+      scene.scale.set(1, 1, 1);
+      const blob = new Blob([result], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cafe_litteraire.glb';
+      a.click();
+      URL.revokeObjectURL(url);
+      btn.textContent = '✓ GLB';
+      setTimeout(() => { btn.textContent = oldText; }, 2000);
+    }, (err) => {
+      scene.scale.set(1, 1, 1);
+      console.error('Export failed:', err);
+      btn.textContent = '✗ Échec';
+      setTimeout(() => { btn.textContent = oldText; }, 2000);
+    }, { binary: true });
   });
 
   // Resize
