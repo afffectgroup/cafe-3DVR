@@ -16,8 +16,18 @@
     border: 1px solid rgba(196,149,89,0.25);
     box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   }
-  #info { top: 16px; left: 16px; max-width: 260px; pointer-events: none; }
+  #info { top: 16px; left: 16px; max-width: 260px; cursor: pointer; }
   #info h1 { font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #c49559; letter-spacing: 1px; text-transform: uppercase; }
+  #infoToggle {
+    top: 16px; left: 16px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 500;
+    color: #c49559; cursor: pointer;
+    font-family: inherit;
+  }
   .k { display: inline-block; padding: 1px 7px; border-radius: 5px; background: rgba(196,149,89,0.15); color: #d9bc8c; font-family: ui-monospace, monospace; margin-right: 4px; font-size: 11px; }
   #legend { bottom: 16px; left: 16px; max-width: 270px; pointer-events: none; font-size: 12px; }
   #legend .row { display: flex; align-items: center; gap: 9px; margin: 3px 0; }
@@ -44,6 +54,8 @@
 
 <div id="loader">Chargement de la scène…</div>
 
+<button id="infoToggle" class="panel" style="display:none" aria-label="Aide navigation">?</button>
+
 <div id="info" class="panel" style="display: none;">
   <h1>Café-littéraire 3D</h1>
   <div><span class="k">glisser</span> tourner</div>
@@ -63,7 +75,7 @@
 <div id="buttons">
   <button id="resetView">↺ Vue</button>
   <button id="fsBtn">⛶ Plein écran</button>
-  <button id="exportBtn">📦 GLB</button>
+  <button id="exportBtn" style="display:none">📦 GLB</button>
   <a href="ar.html" style="text-decoration:none"><button>📱 RA</button></a>
 </div>
 
@@ -1037,6 +1049,27 @@
   document.getElementById('loader').style.display = 'none';
   document.getElementById('info').style.display = 'block';
   document.getElementById('legend').style.display = 'block';
+
+  // Show GLB export button only when URL contains ?dev (hidden from visitors)
+  if (location.search.includes('dev')) {
+    document.getElementById('exportBtn').style.display = '';
+  }
+
+  // Info panel toggle: click panel to collapse to ?, click ? to expand panel
+  const infoPanel = document.getElementById('info');
+  const infoToggle = document.getElementById('infoToggle');
+  function collapseInfo() {
+    infoPanel.style.display = 'none';
+    infoToggle.style.display = 'flex';
+  }
+  function expandInfo() {
+    infoToggle.style.display = 'none';
+    infoPanel.style.display = 'block';
+  }
+  infoPanel.addEventListener('click', collapseInfo);
+  infoToggle.addEventListener('click', expandInfo);
+  // Auto-collapse after 5 seconds on first load
+  setTimeout(() => { if (infoPanel.style.display !== 'none') collapseInfo(); }, 5000);
 
   animate();
 })();
