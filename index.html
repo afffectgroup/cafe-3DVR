@@ -1019,24 +1019,33 @@
     btn.textContent = '⏳ Export…';
     // Temporarily scale scene for AR-friendly default size (1:10 → ~1m model)
     scene.scale.set(0.1, 0.1, 0.1);
-    const exporter = new THREE.GLTFExporter();
-    exporter.parse(scene, (result) => {
-      scene.scale.set(1, 1, 1);
-      const blob = new Blob([result], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'cafe_litteraire.glb';
-      a.click();
-      URL.revokeObjectURL(url);
-      btn.textContent = '✓ GLB';
-      setTimeout(() => { btn.textContent = oldText; }, 2000);
-    }, (err) => {
+    try {
+      const exporter = new THREE.GLTFExporter();
+      // r128 signature: parse(input, onDone, options) — 3 args, no onError
+      exporter.parse(scene, (result) => {
+        scene.scale.set(1, 1, 1);
+        if (!(result instanceof ArrayBuffer)) {
+          console.error('Expected ArrayBuffer, got:', result);
+          btn.textContent = '✗ Échec';
+          setTimeout(() => { btn.textContent = oldText; }, 2000);
+          return;
+        }
+        const blob = new Blob([result], { type: 'model/gltf-binary' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'cafe_litteraire.glb';
+        a.click();
+        URL.revokeObjectURL(url);
+        btn.textContent = '✓ GLB ' + Math.round(result.byteLength / 1024) + 'ko';
+        setTimeout(() => { btn.textContent = oldText; }, 3000);
+      }, { binary: true });
+    } catch (err) {
       scene.scale.set(1, 1, 1);
       console.error('Export failed:', err);
       btn.textContent = '✗ Échec';
       setTimeout(() => { btn.textContent = oldText; }, 2000);
-    }, { binary: true });
+    }
   });
 
   // Resize
