@@ -1,45 +1,57 @@
-# Café-Littéraire — Maquette 3D interactive
+# Café-Littéraire — Maquette 3D interactive + Réalité augmentée
 
-Maquette 3D immersive d'un projet de café-librairie, à explorer dans le navigateur.
+Maquette 3D immersive d'un projet de café-librairie, à explorer dans le navigateur, avec mode réalité augmentée sur mobile.
 
 ## 🚀 Voir en ligne
 
-Une fois GitHub Pages activé, le site sera disponible à :
-`https://<ton-pseudo>.github.io/<nom-du-repo>/`
+Une fois GitHub Pages activé :
+- Vue 3D : `https://<ton-pseudo>.github.io/<nom-du-repo>/`
+- Réalité augmentée : `https://<ton-pseudo>.github.io/<nom-du-repo>/ar.html`
 
-## 🎮 Navigation
+## 🎮 Vue 3D (index.html)
 
-- **Glisser** (souris ou tactile) — tourner autour de la scène
-- **Molette / pincer** — zoomer
-- **↺ Vue** — revenir à la vue d'ensemble
-- **⛶ Plein écran** — immersion totale
+Glisser pour tourner, molette / pincer pour zoomer. Boutons en haut à droite : reset vue, plein écran, export GLB, accès page RA.
 
-La caméra tourne lentement toute seule au démarrage. Tu reprends la main dès que tu interagis ; l'auto-rotation reprend après 5 secondes d'inactivité.
+## 📱 Réalité augmentée (ar.html)
+
+Sur mobile (Android ou iPhone récent), le bouton **📱 Voir en réalité augmentée** ouvre l'appareil photo et projette le café à l'échelle dans ton vrai espace. Tu peux te déplacer autour, le redimensionner d'un pinch, le replacer.
+
+## 🛠️ Générer le fichier GLB (à faire une fois)
+
+La page 3D contient un bouton **📦 GLB** qui exporte la scène au format `.glb` (standard 3D du Web). Marche à suivre :
+
+1. Ouvre `index.html` dans ton navigateur
+2. Clique sur **📦 GLB** en haut à droite
+3. Le fichier `cafe_litteraire.glb` se télécharge sur ton ordinateur
+4. Upload-le dans le repo GitHub à côté des autres fichiers
+5. Commit + push — `ar.html` le trouve automatiquement
+
+## 🍎 Pour iOS (USDZ — optionnel)
+
+Apple n'utilise pas le GLB pour la RA, il leur faut un `.usdz`. Sans ce fichier, la RA marchera sur Android mais pas sur iPhone.
+
+Pour convertir :
+- **Reality Converter** d'Apple (gratuit, Mac uniquement) : glisser-déposer le GLB → export USDZ
+- **En ligne** : products.aspose.app/3d/conversion/glb-to-usdz ou similaire
+- Place `cafe_litteraire.usdz` à côté du GLB dans le repo
 
 ## 🏗️ Ce que contient la scène
 
-- **Façade haussmannienne** en pierre avec deux grandes vitrines transparentes et porte centrale
-- **Bibliothèques pleine hauteur** sur les deux murs latéraux, avec ~200 livres aux dos colorés et échelle laiton
-- **Comptoir café carrelé blanc** avec machine espresso, vitrine pâtisserie, ardoises de menu et arrière-bar fourni
-- **Barista** stylisé derrière le comptoir, dans son couloir de travail
-- **Deux colonnes en chêne** reliées par un claustra ajouré pleine hauteur (post-and-rail avec contreventement diagonal)
-- **Coin lecture** avec sofa velours vert, fauteuil cuir cognac, table basse et tapis terracotta
-- **Bar fenêtre** avec trois tabourets en laiton face à la rue
-- **Présentoir Coups de cœur** en colonne ronde
-- **Sept suspensions** avec halo chaud + lumière naturelle traversant les vitrines
+Façade haussmannienne en pierre avec vitrines transparentes et porte centrale, bibliothèques pleine hauteur avec échelle laiton, comptoir café carrelé blanc avec machine espresso et vitrine pâtisserie, barista derrière, deux colonnes en chêne reliées par un claustra ajouré pleine hauteur, coin lecture velours vert et cuir cognac, bar fenêtre avec tabourets en laiton, sept suspensions chaudes.
 
 ## 🛠️ Technique
 
-Page HTML unique, sans build. Charge [Three.js](https://threejs.org) (r128) depuis CDN. Pas de dépendances à installer, pas de framework — il suffit d'ouvrir `index.html` dans un navigateur moderne.
+- `index.html` : Three.js (r128) chargé depuis CDN, rendu WebGL custom
+- `ar.html` : composant `<model-viewer>` de Google, gère WebXR (Android), Scene Viewer (Android) et Quick Look (iOS)
+- Pas de build, pas de dépendances locales
 
 ## 📁 Structure
 
 ```
 .
-├── index.html      # Toute la scène (HTML + CSS + JS Three.js)
-└── README.md       # Ce fichier
+├── index.html             # Vue 3D interactive
+├── ar.html                # Réalité augmentée
+├── cafe_litteraire.glb    # Modèle 3D (à générer via le bouton 📦 GLB)
+├── cafe_litteraire.usdz   # Optionnel, pour iPhone
+└── README.md              # Ce fichier
 ```
-
-## ✏️ Modifier la scène
-
-Tout le code 3D est dans la balise `<script>` à la fin d'`index.html`. Les sections sont commentées et numérotées : façade, bibliothèques, comptoir, barista, colonnes/pans de bois, tables, coin lecture, bar fenêtre, éclairages, contrôles caméra. Tu peux ajuster positions, dimensions et couleurs directement dans le fichier.
