@@ -21,10 +21,26 @@
     border: 1px solid rgba(196,149,89,0.25);
     box-shadow: 0 8px 24px rgba(0,0,0,0.4);
   }
-  #info { top: 16px; left: 16px; max-width: 280px; }
+  #info { top: 16px; left: 16px; max-width: 280px; cursor: pointer; }
   #info h1 { font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #c49559; letter-spacing: 1px; text-transform: uppercase; }
   #info a { color: #c49559; text-decoration: none; border-bottom: 1px solid rgba(196,149,89,0.4); }
   #info a:hover { border-bottom-color: #c49559; }
+  #infoToggle {
+    top: 16px; left: 16px;
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    padding: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 500;
+    color: #c49559; cursor: pointer;
+    font-family: inherit;
+  }
+  @media (max-width: 600px) {
+    #info { max-width: 75vw; padding: 11px 13px; font-size: 12px; }
+    #info h1 { font-size: 11px; margin-bottom: 6px; }
+    .ar-button { bottom: 80px; padding: 12px 22px; font-size: 14px; }
+  }
   .ar-button {
     position: absolute;
     bottom: 24px;
@@ -84,22 +100,35 @@
   Ouvre cette page sur un mobile (Android ou iPhone récent) pour projeter le café dans ton espace.
 </div>
 
+<button id="infoToggle" class="panel" aria-label="Aide">?</button>
+
 <div id="info" class="panel">
   <h1>Mode Réalité augmentée</h1>
-  Sur <strong>mobile</strong>, touche le bouton 📱 en bas pour projeter le café à l'échelle dans ton environnement réel.<br><br>
+  Sur <strong>mobile</strong>, touche le bouton 📱 en bas pour projeter le café dans ton environnement réel.<br><br>
   Sur <strong>ordinateur</strong>, glisse pour faire tourner et molette pour zoomer.<br><br>
   <a href="index.html">← Retour à la vue 3D complète</a>
 </div>
 
 <script>
-  // Show fallback message if AR not supported
-  const viewer = document.getElementById('viewer');
-  viewer.addEventListener('ar-status', (e) => {
-    if (e.detail.status === 'not-presenting' || e.detail.status === 'failed') {
-      // ok
-    }
+  // Auto-collapse info panel after 5 seconds, with toggle to bring it back
+  const infoPanel = document.getElementById('info');
+  const infoToggle = document.getElementById('infoToggle');
+  function collapseInfo() {
+    infoPanel.style.display = 'none';
+    infoToggle.style.display = 'flex';
+  }
+  function expandInfo() {
+    infoToggle.style.display = 'none';
+    infoPanel.style.display = 'block';
+  }
+  infoPanel.addEventListener('click', (e) => {
+    if (e.target.tagName !== 'A') collapseInfo();
   });
-  // Detect if device probably can't do AR (desktop)
+  infoToggle.addEventListener('click', expandInfo);
+  setTimeout(collapseInfo, 5000);
+
+  // Detect if device probably can't do AR (desktop) and show fallback
+  const viewer = document.getElementById('viewer');
   const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
   if (!isMobile) {
     setTimeout(() => {
@@ -109,6 +138,13 @@
       }
     }, 1500);
   }
+
+  // Show error message if GLB fails to load
+  viewer.addEventListener('error', (e) => {
+    const fb = document.getElementById('fallback');
+    fb.innerHTML = 'Le modèle 3D ne s\'est pas chargé.<br>Vérifie que le fichier <code>cafe_litteraire.glb</code> est bien à la racine du site.';
+    fb.style.display = 'block';
+  });
 </script>
 
 </body>
