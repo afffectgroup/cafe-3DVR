@@ -119,7 +119,7 @@
   <button id="resetView">↺ Vue</button>
   <button id="fsBtn">⛶ Plein écran</button>
   <button id="exportBtn" style="display:none">📦 GLB</button>
-  <a href="ar.html" style="text-decoration:none"><button class="cta-rose">📱 Réalité Augmentée</button></a>
+  <button id="arBtn" class="cta-rose">📱 Réalité Augmentée</button>
 </div>
 
 <a id="arFloatBtn" href="ar.html" aria-label="Voir le café en Réalité Augmentée">📱 Voir en Réalité Augmentée</a>
@@ -1044,6 +1044,52 @@
     } else {
       document.exitFullscreen?.();
     }
+  });
+
+  // ===== AR launch (one-tap from index page) =====
+  // iOS: <a rel="ar"> with single <img> child triggers Quick Look from .usdz
+  // Android: intent:// URL launches Scene Viewer with the .glb
+  // Other: fall back to /ar.html (model-viewer page)
+  function launchAR() {
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/.test(ua);
+    const origin = window.location.origin;
+
+    if (isIOS) {
+      // Apple AR Quick Look: anchor must contain exactly one <img> child.
+      const a = document.createElement('a');
+      a.setAttribute('rel', 'ar');
+      a.href = 'cafe_litteraire.usdz';
+      a.style.display = 'none';
+      const img = document.createElement('img');
+      img.alt = '';
+      a.appendChild(img);
+      document.body.appendChild(a);
+      a.click();
+      // Cleanup after Quick Look has had a chance to intercept
+      setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 1000);
+    } else if (isAndroid) {
+      // Google Scene Viewer
+      const modelUrl = origin + '/cafe_litteraire.glb';
+      const fallback = origin + '/ar.html';
+      const intent =
+        'intent://arvr.google.com/scene-viewer/1.0' +
+        '?file=' + encodeURIComponent(modelUrl) +
+        '&mode=ar_preferred' +
+        '&title=' + encodeURIComponent('Le Quartier Littéraire') +
+        '#Intent;scheme=https;package=com.google.ar.core;action=android.intent.action.VIEW' +
+        ';S.browser_fallback_url=' + encodeURIComponent(fallback) + ';end;';
+      window.location.href = intent;
+    } else {
+      // Desktop / unsupported → model-viewer page (still has the AR button if device supports it)
+      window.location.href = 'ar.html';
+    }
+  }
+  document.getElementById('arBtn').addEventListener('click', launchAR);
+  document.getElementById('arFloatBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    launchAR();
   });
 
   // Export to GLB (for AR / model-viewer)
