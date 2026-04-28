@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Café-Littéraire — Réalité augmentée</title>
+<script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; width: 100%; height: 100vh; background: #0f0c08; font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; overflow: hidden; }
+  model-viewer {
+    width: 100%; height: 100%;
+    background-color: #0f0c08;
+    --poster-color: #0f0c08;
+  }
+  .panel {
+    position: absolute; z-index: 10;
+    color: #f4ecda; background: rgba(28,22,18,0.82);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    padding: 13px 16px; border-radius: 12px; font-size: 13px; line-height: 1.6;
+    border: 1px solid rgba(196,149,89,0.25);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  #info { top: 16px; left: 16px; max-width: 280px; }
+  #info h1 { font-size: 13px; font-weight: 600; margin: 0 0 8px 0; color: #c49559; letter-spacing: 1px; text-transform: uppercase; }
+  #info a { color: #c49559; text-decoration: none; border-bottom: 1px solid rgba(196,149,89,0.4); }
+  #info a:hover { border-bottom-color: #c49559; }
+  .ar-button {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #c49559;
+    color: #1a1410;
+    border: none;
+    padding: 14px 26px;
+    border-radius: 28px;
+    font-size: 15px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    font-family: inherit;
+    letter-spacing: 0.3px;
+  }
+  .ar-button:active { transform: translateX(-50%) scale(0.97); }
+  #fallback {
+    display: none;
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #c49559;
+    background: rgba(28,22,18,0.85);
+    padding: 12px 20px;
+    border-radius: 24px;
+    font-size: 13px;
+    text-align: center;
+    border: 1px solid rgba(196,149,89,0.25);
+  }
+</style>
+</head>
+<body>
+
+<model-viewer
+  id="viewer"
+  src="cafe_litteraire.glb"
+  ios-src="cafe_litteraire.usdz"
+  ar
+  ar-modes="webxr scene-viewer quick-look"
+  ar-scale="auto"
+  camera-controls
+  touch-action="pan-y"
+  auto-rotate
+  rotation-per-second="12deg"
+  shadow-intensity="1"
+  exposure="1.1"
+  environment-image="neutral"
+  alt="Café-Littéraire en 3D">
+  <button class="ar-button" slot="ar-button">📱 Voir en réalité augmentée</button>
+</model-viewer>
+
+<div id="fallback" class="panel">
+  Réalité augmentée non détectée sur cet appareil.<br>
+  Ouvre cette page sur un mobile (Android ou iPhone récent) pour projeter le café dans ton espace.
+</div>
+
+<div id="info" class="panel">
+  <h1>Mode Réalité augmentée</h1>
+  Sur <strong>mobile</strong>, touche le bouton 📱 en bas pour projeter le café à l'échelle dans ton environnement réel.<br><br>
+  Sur <strong>ordinateur</strong>, glisse pour faire tourner et molette pour zoomer.<br><br>
+  <a href="index.html">← Retour à la vue 3D complète</a>
+</div>
+
+<script>
+  // Show fallback message if AR not supported
+  const viewer = document.getElementById('viewer');
+  viewer.addEventListener('ar-status', (e) => {
+    if (e.detail.status === 'not-presenting' || e.detail.status === 'failed') {
+      // ok
+    }
+  });
+  // Detect if device probably can't do AR (desktop)
+  const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+  if (!isMobile) {
+    setTimeout(() => {
+      const fb = document.getElementById('fallback');
+      if (fb && !viewer.canActivateAR) {
+        fb.style.display = 'block';
+      }
+    }, 1500);
+  }
+</script>
+
+</body>
+</html>
