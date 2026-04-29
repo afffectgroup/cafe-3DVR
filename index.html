@@ -130,8 +130,24 @@
 (function(){
   // ============ SETUP ============
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0d4e0);
-  scene.fog = new THREE.Fog(0xf0d4e0, 9, 22);
+  // Background: warm sky gradient (dawn/dusk feel) with brand-rose horizon
+  if (typeof document !== 'undefined') {
+    const skyC = document.createElement('canvas');
+    skyC.width = 32; skyC.height = 256;
+    const skyCtx = skyC.getContext('2d');
+    const skyGrd = skyCtx.createLinearGradient(0, 0, 0, 256);
+    skyGrd.addColorStop(0,    '#e8c4d0');  // upper sky, warm dusty pink
+    skyGrd.addColorStop(0.5,  '#f0d4e0');  // brand pink horizon
+    skyGrd.addColorStop(0.85, '#f5dcc8');  // peach near floor line
+    skyGrd.addColorStop(1,    '#e8b89a');
+    skyCtx.fillStyle = skyGrd; skyCtx.fillRect(0, 0, 32, 256);
+    const skyTex = new THREE.CanvasTexture(skyC);
+    if (THREE.sRGBEncoding) skyTex.encoding = THREE.sRGBEncoding;
+    scene.background = skyTex;
+  } else {
+    scene.background = new THREE.Color(0xf0d4e0);
+  }
+  scene.fog = new THREE.Fog(0xf0d4e0, 11, 26);
 
   const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
 
@@ -142,26 +158,174 @@
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.25;
+  renderer.physicallyCorrectLights = true;
   document.body.appendChild(renderer.domElement);
 
   // Room dimensions (meters)
   const W = 10, D = 7, H = 3;
 
+  // ============ PROCEDURAL TEXTURES ============
+  // Helpers generate Canvas-based textures in the browser. In headless Node
+  // (used to bake the GLB), `document` is undefined → helpers return null and
+  // materials gracefully fall back to flat colors. Same code, two outputs.
+  const HAS_CANVAS = (typeof document !== 'undefined' && typeof document.createElement === 'function');
+
+  function makeCanvasTexture(size, drawFn, repeatX = 1, repeatY = 1) {
+    if (!HAS_CANVAS) return null;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const ctx = c.getContext('2d');
+    drawFn(ctx, size);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeatX, repeatY);
+    t.anisotropy = 8;
+    if (THREE.sRGBEncoding) t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+
+  // Hashed noise for non-uniform variation
+  function hash(x, y) {
+    const v = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return v - Math.floor(v);
+  }
+
+  // Wood grain: longitudinal streaks with noise + a few knots
+  function makeWoodTex(baseHex, darkHex, repeatX = 1, repeatY = 1) {
+    return makeCanvasTexture(512, (ctx, S) => {
+      ctx.fillStyle = baseHex; ctx.fillRect(0, 0, S, S);
+      const dark = darkHex;
+      // Grain streaks
+      for (let i = 0; i < 240; i++) {
+        const y = Math.random() * S;
+        const w = 0.4 + Math.random() * 1.6;
+        const a = 0.05 + Math.random() * 0.18;
+        ctx.fillStyle = `rgba(0,0,0,${a})`;
+        ctx.fillRect(0, y, S, w);
+      }
+      // A few warm knots
+      for (let k = 0; k < 4; k++) {
+        const cx = Math.random() * S, cy = Math.random() * S;
+        const r = 6 + Math.random() * 12;
+        const grd = ctx.createRadialGradient(cx, cy, 1, cx, cy, r);
+        grd.addColorStop(0, dark); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+      }
+    }, repeatX, repeatY);
+  }
+
+  // Parquet: planks with vertical seams + a hint of grain inside
+  function makeFloorTex() {
+    return makeCanvasTexture(1024, (ctx, S) => {
+      ctx.fillStyle = '#c9a878'; ctx.fillRect(0, 0, S, S);
+      const planks = 6;
+      const ph = S / planks;
+      for (let r = 0; r < planks; r++) {
+        const offset = (r % 2) * (S / 4);
+        const y = r * ph;
+        // Slightly varied plank color
+        const tint = 200 + Math.floor(Math.random() * 30);
+        ctx.fillStyle = `rgb(${tint - 20},${tint - 50},${tint - 90})`;
+        ctx.fillRect(0, y, S, ph);
+        // Plank seams (vertical)
+        ctx.fillStyle = 'rgba(40,25,10,0.55)';
+        for (let v = 0; v < 4; v++) {
+          ctx.fillRect((v * S / 4 + offset) % S, y, 2, ph);
+        }
+        // Horizontal seams
+        ctx.fillStyle = 'rgba(40,25,10,0.4)';
+        ctx.fillRect(0, y, S, 1.5);
+        // Subtle grain
+        for (let g = 0; g < 25; g++) {
+          ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.07})`;
+          ctx.fillRect(0, y + Math.random() * ph, S, 0.5);
+        }
+      }
+    }, 4, 3);
+  }
+
+  // Fabric weave: small dot pattern + slight noise
+  function makeFabricTex(hex) {
+    return makeCanvasTexture(256, (ctx, S) => {
+      ctx.fillStyle = hex; ctx.fillRect(0, 0, S, S);
+      // Weave grid
+      ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+      ctx.lineWidth = 0.6;
+      for (let i = 0; i < S; i += 3) {
+        ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(S, i); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, S); ctx.stroke();
+      }
+      // Random fluff
+      for (let i = 0; i < 800; i++) {
+        ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.06})`;
+        ctx.fillRect(Math.random() * S, Math.random() * S, 1, 1);
+      }
+    }, 4, 4);
+  }
+
+  // Marble counter: dark base + soft veins
+  function makeMarbleTex() {
+    return makeCanvasTexture(512, (ctx, S) => {
+      ctx.fillStyle = '#1f1f20'; ctx.fillRect(0, 0, S, S);
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 18; i++) {
+        ctx.beginPath();
+        let x = Math.random() * S, y = Math.random() * S;
+        ctx.moveTo(x, y);
+        for (let s = 0; s < 30; s++) {
+          x += (Math.random() - 0.5) * 35; y += (Math.random() - 0.5) * 35;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }, 1, 1);
+  }
+
+  // Stone walls (façade keystones, columns)
+  function makeStoneTex(baseHex) {
+    return makeCanvasTexture(512, (ctx, S) => {
+      ctx.fillStyle = baseHex; ctx.fillRect(0, 0, S, S);
+      for (let i = 0; i < 1500; i++) {
+        const a = Math.random() * 0.18;
+        ctx.fillStyle = `rgba(${Math.random() < 0.5 ? '0,0,0' : '255,255,255'},${a})`;
+        ctx.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+      }
+    }, 2, 2);
+  }
+
+  // Pre-bake textures we'll reuse across materials (null in headless)
+  const TEX = {
+    floor:    makeFloorTex(),
+    woodMd:   makeWoodTex('#6b4523', '#3d2615', 2, 1),
+    woodDk:   makeWoodTex('#3d2615', '#1a0e08', 2, 1),
+    woodLt:   makeWoodTex('#b5895e', '#8a6342', 2, 1),
+    fabricPink:  makeFabricTex('#dca3b6'),
+    fabricPink2: makeFabricTex('#e8b9c8'),
+    fabricWhite: makeFabricTex('#f5f0e8'),
+    fabricVelvet:makeFabricTex('#2d5947'),
+    counterTop:  makeMarbleTex(),
+    stone:    makeStoneTex('#c5bea9'),
+  };
+
   // ============ MATERIALS ============
   const M = {
-    floor:    new THREE.MeshStandardMaterial({ color: 0xc9a878, roughness: 0.7 }),
+    floor:    new THREE.MeshStandardMaterial({ color: 0xc9a878, roughness: 0.78, map: TEX.floor }),
     floor2:   new THREE.MeshStandardMaterial({ color: 0xb08e62, roughness: 0.75 }),
     wall:     new THREE.MeshStandardMaterial({ color: 0xf2ead4, roughness: 0.92, side: THREE.DoubleSide }),
     ceiling:  new THREE.MeshStandardMaterial({ color: 0x1a1610, roughness: 0.95 }),
-    woodDk:   new THREE.MeshStandardMaterial({ color: 0x3d2615, roughness: 0.6 }),
-    woodMd:   new THREE.MeshStandardMaterial({ color: 0x6b4523, roughness: 0.65 }),
-    woodLt:   new THREE.MeshStandardMaterial({ color: 0xb5895e, roughness: 0.7 }),
-    stone:    new THREE.MeshStandardMaterial({ color: 0xc5bea9, roughness: 0.95 }),
+    woodDk:   new THREE.MeshStandardMaterial({ color: 0x3d2615, roughness: 0.55, map: TEX.woodDk }),
+    woodMd:   new THREE.MeshStandardMaterial({ color: 0x6b4523, roughness: 0.6, map: TEX.woodMd }),
+    woodLt:   new THREE.MeshStandardMaterial({ color: 0xb5895e, roughness: 0.65, map: TEX.woodLt }),
+    stone:    new THREE.MeshStandardMaterial({ color: 0xc5bea9, roughness: 0.95, map: TEX.stone }),
     tile:     new THREE.MeshStandardMaterial({ color: 0xfafaf2, roughness: 0.3 }),
-    counterTop: new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4, metalness: 0.1 }),
-    velvet:   new THREE.MeshStandardMaterial({ color: 0x2d5947, roughness: 0.85 }),
-    velvet2:  new THREE.MeshStandardMaterial({ color: 0x356957, roughness: 0.85 }),
+    counterTop: new THREE.MeshStandardMaterial({ color: 0x252527, roughness: 0.35, metalness: 0.15, map: TEX.counterTop }),
+    velvet:   new THREE.MeshStandardMaterial({ color: 0x2d5947, roughness: 0.85, map: TEX.fabricVelvet }),
+    velvet2:  new THREE.MeshStandardMaterial({ color: 0x356957, roughness: 0.85, map: TEX.fabricVelvet }),
+    sofaPink:    new THREE.MeshStandardMaterial({ color: 0xdca3b6, roughness: 0.88, map: TEX.fabricPink }),
+    sofaPink2:   new THREE.MeshStandardMaterial({ color: 0xe8b9c8, roughness: 0.88, map: TEX.fabricPink2 }),
+    poufWhite:   new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.95, map: TEX.fabricWhite }),
     leather:  new THREE.MeshStandardMaterial({ color: 0x8b4f2b, roughness: 0.55 }),
     brass:    new THREE.MeshStandardMaterial({ color: 0xc49559, roughness: 0.3, metalness: 0.7 }),
     rug:      new THREE.MeshStandardMaterial({ color: 0x8b3a24, roughness: 0.95 }),
@@ -387,7 +551,7 @@
   const corridorD = 0.8;  // working space behind counter for barista
   // Straight counter along back wall, right portion
   const longW = 3.5, longD = 0.65;
-  const longCx = 2.55;
+  const longCx = -2.55;
   const longCz = -D/2 + corridorD + longD/2;
 
   // Counter body (white tile)
@@ -679,21 +843,21 @@
   }
 
   // Table 1 (centre, derrière le mur en pans de bois)
-  makeTable(-2, 0.3);
-  makeChair(-2.7, 0.3, Math.PI/2);
-  makeChair(-1.3, 0.3, -Math.PI/2);
-  makeChair(-2, -0.4, 0);
-  makeChair(-2, 1.0, Math.PI);
+  makeTable(2, 0.3);
+  makeChair(2.7, 0.3, -Math.PI/2);
+  makeChair(1.3, 0.3, Math.PI/2);
+  makeChair(2, -0.4, 0);
+  makeChair(2, 1.0, Math.PI);
 
-  // Table 2 (fond gauche)
-  makeTable(-2.5, -2.2);
-  makeChair(-3.2, -2.2, Math.PI/2);
-  makeChair(-1.8, -2.2, -Math.PI/2);
-  makeChair(-2.5, -1.5, Math.PI);
+  // Table 2 (fond droit)
+  makeTable(2.5, -2.2);
+  makeChair(3.2, -2.2, -Math.PI/2);
+  makeChair(1.8, -2.2, Math.PI/2);
+  makeChair(2.5, -1.5, Math.PI);
 
   // Cup on table 1
   const tableMug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.08, 12), M.mug);
-  tableMug.position.set(-1.85, 0.79, 0.4);
+  tableMug.position.set(1.85, 0.79, 0.4);
   scene.add(tableMug);
 
   // Book on table 2
@@ -701,12 +865,12 @@
     new THREE.BoxGeometry(0.18, 0.025, 0.25),
     new THREE.MeshStandardMaterial({ color: 0x6b1f2e, roughness: 0.7 })
   );
-  tableBook.position.set(-2.45, 0.78, -2.15);
+  tableBook.position.set(2.45, 0.78, -2.15);
   tableBook.rotation.y = 0.2;
   scene.add(tableBook);
 
   // ============ COZY CORNER ============
-  const cozyX = 2.6, cozyZ = 0.3;
+  const cozyX = -2.6, cozyZ = 0.3;
 
   // Rug
   const rug = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.9), M.rug);
@@ -719,25 +883,25 @@
   const sofa = new THREE.Group();
   sofa.position.set(cozyX - 0.3, 0, cozyZ - 0.5);
 
-  const sSeat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 0.85), M.velvet);
+  const sSeat = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.4, 0.85), M.sofaPink);
   sSeat.position.y = 0.2;
   sSeat.castShadow = true;
   sofa.add(sSeat);
 
-  const sBack = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 0.18), M.velvet);
+  const sBack = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 0.18), M.sofaPink);
   sBack.position.set(0, 0.5, -0.34);
   sBack.castShadow = true;
   sofa.add(sBack);
 
   for (const dx of [-0.72, 0.72]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.45, 0.85), M.velvet);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.45, 0.85), M.sofaPink);
     arm.position.set(dx, 0.45, 0);
     arm.castShadow = true;
     sofa.add(arm);
   }
 
   for (let i = 0; i < 2; i++) {
-    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.55), M.velvet2);
+    const cushion = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.12, 0.55), M.sofaPink2);
     cushion.position.set(-0.35 + i * 0.7, 0.46, 0.05);
     sofa.add(cushion);
   }
@@ -749,28 +913,38 @@
 
   scene.add(sofa);
 
-  // Armchair
-  const ac = new THREE.Group();
-  ac.position.set(cozyX + 1.3, 0, cozyZ);
-  ac.rotation.y = -0.4;
-
-  const acSeat = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.4, 0.75), M.leather);
-  acSeat.position.y = 0.22;
-  acSeat.castShadow = true;
-  ac.add(acSeat);
-
-  const acBack = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.6, 0.15), M.leather);
-  acBack.position.set(0, 0.55, -0.3);
-  acBack.castShadow = true;
-  ac.add(acBack);
-
-  for (const dx of [-0.32, 0.32]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.75), M.leather);
-    arm.position.set(dx, 0.5, 0);
-    ac.add(arm);
+  // Two white poufs (replaced the cognac armchair)
+  // Side stitching seam to give a fabric pouf feel
+  function makePouf(x, z) {
+    const g = new THREE.Group();
+    // Main body: slightly tapered cylinder
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.32, 0.36, 0.42, 24),
+      M.poufWhite
+    );
+    body.position.y = 0.21;
+    body.castShadow = true;
+    g.add(body);
+    // Top button (a small darker disc to suggest tufted center)
+    const button = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 0.015, 12),
+      new THREE.MeshStandardMaterial({ color: 0xd4cfc4, roughness: 0.9 })
+    );
+    button.position.y = 0.42 + 0.008;
+    g.add(button);
+    // Subtle base ring (shadow / piping)
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(0.36, 0.012, 8, 28),
+      new THREE.MeshStandardMaterial({ color: 0xe6dfd2, roughness: 0.9 })
+    );
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.005;
+    g.add(ring);
+    g.position.set(x, 0, z);
+    return g;
   }
-
-  scene.add(ac);
+  scene.add(makePouf(cozyX + 1.15, cozyZ + 0.1));
+  scene.add(makePouf(cozyX + 1.55, cozyZ - 0.55));
 
   // Coffee table
   const ct = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.04, 0.55), M.woodMd);
@@ -806,7 +980,7 @@
   scene.add(cMug);
 
   // ============ BAR COUNTER (window) ============
-  const barX = -3.0;
+  const barX = 3.0;
   const barZ = D/2 - 0.55;
 
   const barBody = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.0, 0.4), M.woodMd);
@@ -840,12 +1014,12 @@
 
   // ============ COUPS DE COEUR display ============
   const cdcBody = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.2, 16), M.woodMd);
-  cdcBody.position.set(2.8, 0.6, D/2 - 0.55);
+  cdcBody.position.set(-2.8, 0.6, D/2 - 0.55);
   cdcBody.castShadow = true;
   scene.add(cdcBody);
 
   const cdcTop = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.04, 16), M.woodDk);
-  cdcTop.position.set(2.8, 1.22, D/2 - 0.55);
+  cdcTop.position.set(-2.8, 1.22, D/2 - 0.55);
   scene.add(cdcTop);
 
   // Books on top
@@ -856,7 +1030,7 @@
       new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 })
     );
     const ang = (i / 6) * Math.PI * 2;
-    b.position.set(2.8 + Math.cos(ang) * 0.18, 1.33, D/2 - 0.55 + Math.sin(ang) * 0.18);
+    b.position.set(-2.8 + Math.cos(ang) * 0.18, 1.33, D/2 - 0.55 + Math.sin(ang) * 0.18);
     b.rotation.y = ang;
     b.castShadow = true;
     scene.add(b);
@@ -867,7 +1041,7 @@
     new THREE.CylinderGeometry(0.18, 0.22, 0.3, 12),
     new THREE.MeshStandardMaterial({ color: 0x6b3923, roughness: 0.8 })
   );
-  potBase.position.set(-W/2 + 0.5, 0.15, D/2 - 0.5);
+  potBase.position.set(W/2 - 0.5, 0.15, D/2 - 0.5);
   potBase.castShadow = true;
   scene.add(potBase);
 
@@ -878,28 +1052,391 @@
       new THREE.MeshStandardMaterial({ color: 0x3b6d11, roughness: 0.85 })
     );
     const ang = (i / 8) * Math.PI * 2;
-    leaf.position.set(-W/2 + 0.5 + Math.cos(ang) * 0.08, 0.55, D/2 - 0.5 + Math.sin(ang) * 0.08);
+    leaf.position.set(W/2 - 0.5 + Math.cos(ang) * 0.08, 0.55, D/2 - 0.5 + Math.sin(ang) * 0.08);
     leaf.rotation.z = (Math.random() - 0.5) * 0.4;
     leaf.rotation.x = (Math.random() - 0.5) * 0.4;
     scene.add(leaf);
   }
 
+  // ============ DECOR & LIFE DETAILS ============
+
+  // ---- Galerie de 3 cadres design (rose / typographique / cœurs) ----
+  // Inspired by the gallery-wall reference: typo poster + illustration + hearts
+  // Helper: build a framed picture with a custom canvas painter
+  function addFrame(x, y, w, h, frameColor, frameMetal, paintFn) {
+    // Outer frame (slightly thicker than the canvas)
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.08, h + 0.08, 0.035),
+      new THREE.MeshStandardMaterial({ color: frameColor, roughness: 0.5, metalness: frameMetal })
+    );
+    frame.position.set(x, y, -D/2 + 0.018);
+    scene.add(frame);
+    // White matte border (visible inside the frame)
+    const matte = new THREE.Mesh(
+      new THREE.PlaneGeometry(w + 0.04, h + 0.04),
+      new THREE.MeshStandardMaterial({ color: 0xfafaf2, roughness: 0.85 })
+    );
+    matte.position.set(x, y, -D/2 + 0.037);
+    scene.add(matte);
+    // The artwork itself (a canvas texture in browser, flat color in headless)
+    let art;
+    if (HAS_CANVAS) {
+      const c = document.createElement('canvas'); c.width = 384; c.height = 512;
+      paintFn(c.getContext('2d'), c.width, c.height);
+      art = new THREE.CanvasTexture(c);
+      if (THREE.sRGBEncoding) art.encoding = THREE.sRGBEncoding;
+    }
+    const artwork = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshStandardMaterial({ map: art || null, color: 0xfafaf2, roughness: 0.85 })
+    );
+    artwork.position.set(x, y, -D/2 + 0.04);
+    scene.add(artwork);
+  }
+
+  // Cadre 1 : "DREAMS COME TRUE" — fond rose poudré, cadre argent, lettres dégradé orange
+  addFrame(2.2, 1.55, 0.55, 0.72, 0xd0d0d0, 0.85, (ctx, W, H) => {
+    // Pink background
+    ctx.fillStyle = '#f0d4dc'; ctx.fillRect(0, 0, W, H);
+    // Subtle grain
+    for (let i = 0; i < 800; i++) {
+      ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.08})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    }
+    // Shadow under text
+    ctx.font = 'bold 70px Georgia, serif';
+    ctx.textAlign = 'center';
+    const lines = ['DREAMS', 'COME', 'TRUE'];
+    const baseY = H/2 - 60;
+    lines.forEach((line, i) => {
+      const y = baseY + i * 80;
+      // Drop shadow
+      ctx.fillStyle = 'rgba(60,30,30,0.18)';
+      ctx.fillText(line, W/2 + 4, y + 4);
+      // Gradient fill: yellow → orange → red
+      const g = ctx.createLinearGradient(0, y - 50, 0, y + 10);
+      g.addColorStop(0, '#f5d04a');
+      g.addColorStop(0.5, '#e88838');
+      g.addColorStop(1, '#c54028');
+      ctx.fillStyle = g;
+      ctx.fillText(line, W/2, y);
+    });
+  });
+
+  // Cadre 2 : illustration livre avec ruban rose + "make it happen"
+  addFrame(3.1, 1.45, 0.45, 0.62, 0x1a1a1a, 0.4, (ctx, W, H) => {
+    // White background
+    ctx.fillStyle = '#fafaf2'; ctx.fillRect(0, 0, W, H);
+    // Subtle grain
+    for (let i = 0; i < 400; i++) {
+      ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`;
+      ctx.fillRect(Math.random() * W, Math.random() * H, 1, 1);
+    }
+    // Book illustration (open book silhouette, soft pencil-style)
+    ctx.strokeStyle = '#e8a4b4'; ctx.lineWidth = 3.5;
+    ctx.fillStyle = '#f5dce4';
+    ctx.beginPath();
+    ctx.moveTo(W/2 - 90, 240);
+    ctx.lineTo(W/2 - 95, 360);
+    ctx.lineTo(W/2 + 95, 360);
+    ctx.lineTo(W/2 + 90, 240);
+    ctx.lineTo(W/2, 250);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // Pages line down the middle
+    ctx.beginPath(); ctx.moveTo(W/2, 250); ctx.lineTo(W/2, 360); ctx.stroke();
+    // Pink ribbon bow on top of the book
+    ctx.fillStyle = '#e8869a';
+    // Left loop
+    ctx.beginPath();
+    ctx.ellipse(W/2 - 30, 220, 26, 16, -0.3, 0, Math.PI * 2); ctx.fill();
+    // Right loop
+    ctx.beginPath();
+    ctx.ellipse(W/2 + 30, 220, 26, 16, 0.3, 0, Math.PI * 2); ctx.fill();
+    // Center knot
+    ctx.fillStyle = '#d56b80';
+    ctx.beginPath();
+    ctx.ellipse(W/2, 222, 12, 14, 0, 0, Math.PI * 2); ctx.fill();
+    // Trailing ribbon ends
+    ctx.fillStyle = '#e8869a';
+    ctx.beginPath();
+    ctx.moveTo(W/2 - 8, 230); ctx.lineTo(W/2 - 28, 280); ctx.lineTo(W/2 - 14, 285); ctx.lineTo(W/2 - 2, 235);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(W/2 + 8, 230); ctx.lineTo(W/2 + 28, 280); ctx.lineTo(W/2 + 14, 285); ctx.lineTo(W/2 + 2, 235);
+    ctx.closePath(); ctx.fill();
+    // Caption "make it happen" — handwritten style
+    ctx.fillStyle = '#3a2418';
+    ctx.font = 'italic 28px "Brush Script MT", "Lucida Handwriting", cursive';
+    ctx.textAlign = 'center';
+    ctx.fillText('make it happen', W/2, 430);
+  });
+
+  // Cadre 3 : grille de cœurs roses avec lettres "AMOUR"
+  addFrame(3.85, 1.4, 0.32, 0.42, 0x1a1a1a, 0.4, (ctx, W, H) => {
+    // Cream background
+    ctx.fillStyle = '#fafaf2'; ctx.fillRect(0, 0, W, H);
+    // 5 columns × 6 rows of hearts; each column has one letter overlaid in row 0
+    const letters = ['A', 'M', 'O', 'U', 'R'];
+    const cols = 5, rows = 5;
+    const padX = 60, padY = 60;
+    const cellW = (W - padX * 2) / (cols - 1);
+    const cellH = (H - padY * 2) / (rows - 1);
+    function heart(cx, cy, s, color) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + s * 0.3);
+      ctx.bezierCurveTo(cx, cy, cx - s, cy, cx - s, cy - s * 0.4);
+      ctx.bezierCurveTo(cx - s, cy - s * 0.9, cx, cy - s * 0.9, cx, cy - s * 0.5);
+      ctx.bezierCurveTo(cx, cy - s * 0.9, cx + s, cy - s * 0.9, cx + s, cy - s * 0.4);
+      ctx.bezierCurveTo(cx + s, cy, cx, cy, cx, cy + s * 0.3);
+      ctx.fill();
+    }
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const x = padX + c * cellW;
+        const y = padY + r * cellH;
+        if (r === 0) {
+          // Replace heart with letter
+          ctx.fillStyle = '#d04060';
+          ctx.font = 'bold 38px Georgia, serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(letters[c], x, y + 12);
+        } else {
+          heart(x, y, 18, '#d04060');
+        }
+      }
+    }
+  });
+
+  // ---- Porte WC (centre du mur arrière, ancien emplacement de l'horloge) ----
+  function makeWCDoor(x) {
+    const doorH = 2.05;
+    const doorW = 0.78;
+    const z = -D/2;
+    // Door frame (slightly proud of the wall)
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3d2615, roughness: 0.65, map: TEX.woodDk });
+    // Top lintel
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(doorW + 0.12, 0.06, 0.05), frameMat);
+    lintel.position.set(x, doorH + 0.03, z + 0.025);
+    scene.add(lintel);
+    // Left jamb
+    const jambL = new THREE.Mesh(new THREE.BoxGeometry(0.06, doorH + 0.06, 0.05), frameMat);
+    jambL.position.set(x - doorW/2 - 0.03, doorH/2, z + 0.025);
+    scene.add(jambL);
+    // Right jamb
+    const jambR = jambL.clone();
+    jambR.position.x = x + doorW/2 + 0.03;
+    scene.add(jambR);
+    // Door panel (slightly recessed, painted a soft warm cream)
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0xe8d8c0, roughness: 0.7 });
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, 0.025), panelMat);
+    panel.position.set(x, doorH/2, z + 0.013);
+    scene.add(panel);
+    // Two upper recessed panels (typical bistro door)
+    const subPanelMat = new THREE.MeshStandardMaterial({ color: 0xd8c5a5, roughness: 0.75 });
+    const sp1 = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.18, 0.55, 0.005), subPanelMat);
+    sp1.position.set(x, doorH - 0.4, z + 0.027);
+    scene.add(sp1);
+    const sp2 = sp1.clone();
+    sp2.position.y = doorH - 1.05;
+    scene.add(sp2);
+    // Lower decorative panel
+    const sp3 = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.18, 0.6, 0.005), subPanelMat);
+    sp3.position.set(x, 0.42, z + 0.027);
+    scene.add(sp3);
+    // Brass handle (lever style)
+    const handleBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 0.025, 12),
+      new THREE.MeshStandardMaterial({ color: 0xc49559, roughness: 0.3, metalness: 0.85 })
+    );
+    handleBase.rotation.x = Math.PI / 2;
+    handleBase.position.set(x + doorW/2 - 0.1, 1.05, z + 0.03);
+    scene.add(handleBase);
+    const handleLever = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.022, 0.022),
+      new THREE.MeshStandardMaterial({ color: 0xc49559, roughness: 0.3, metalness: 0.85 })
+    );
+    handleLever.position.set(x + doorW/2 - 0.16, 1.05, z + 0.045);
+    scene.add(handleLever);
+    // "WC" sign plaque above the door
+    const plaque = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.12, 0.01),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 })
+    );
+    plaque.position.set(x, doorH + 0.18, z + 0.03);
+    scene.add(plaque);
+    // The "WC" letters on the plaque (procedural canvas)
+    if (HAS_CANVAS) {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 96;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#1a1a1a'; ctx.fillRect(0, 0, 128, 96);
+      ctx.fillStyle = '#c49559';
+      ctx.font = 'bold 56px Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('WC', 64, 50);
+      const tex = new THREE.CanvasTexture(c);
+      if (THREE.sRGBEncoding) tex.encoding = THREE.sRGBEncoding;
+      const plaqueFace = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.17, 0.11),
+        new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5 })
+      );
+      plaqueFace.position.set(x, doorH + 0.18, z + 0.036);
+      scene.add(plaqueFace);
+    }
+  }
+  makeWCDoor(0);
+
+  // Folded newspaper on the window bar (to the right side, near the stools)
+  const newspaper = new THREE.Mesh(
+    new THREE.BoxGeometry(0.32, 0.012, 0.22),
+    new THREE.MeshStandardMaterial({ color: 0xe8e2d4, roughness: 0.85 })
+  );
+  newspaper.position.set(barX + 0.7, 1.04, barZ);
+  newspaper.rotation.y = 0.15;
+  scene.add(newspaper);
+  // Headline strip (darker band on the paper)
+  const headline = new THREE.Mesh(
+    new THREE.BoxGeometry(0.28, 0.001, 0.04),
+    new THREE.MeshStandardMaterial({ color: 0x222, roughness: 0.85 })
+  );
+  headline.position.set(barX + 0.7, 1.047, barZ - 0.06);
+  headline.rotation.y = 0.15;
+  scene.add(headline);
+
+  // A take-away cup with sleeve on the coffee counter (next to the espresso machine)
+  const togoCup = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.04, 0.13, 16),
+    new THREE.MeshStandardMaterial({ color: 0xf5f0e6, roughness: 0.6 })
+  );
+  togoCup.position.set(longCx + 0.2, cH + 0.07, longCz + 0.05);
+  scene.add(togoCup);
+  const togoSleeve = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.047, 0.044, 0.045, 16),
+    new THREE.MeshStandardMaterial({ color: 0x8b5a2e, roughness: 0.85 })
+  );
+  togoSleeve.position.set(longCx + 0.2, cH + 0.06, longCz + 0.05);
+  scene.add(togoSleeve);
+  const togoLid = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.05, 0.045, 0.022, 16),
+    new THREE.MeshStandardMaterial({ color: 0x222, roughness: 0.7 })
+  );
+  togoLid.position.set(longCx + 0.2, cH + 0.146, longCz + 0.05);
+  scene.add(togoLid);
+
+  // Bookmarks peeking out of a few books on the right bookshelf
+  // (subtle red and gold ribbons that catch the eye on close inspection)
+  const bmColors = [0xa82e4a, 0xc49559, 0x6b1f2e, 0xe8b9c8];
+  for (let i = 0; i < 6; i++) {
+    const bm = new THREE.Mesh(
+      new THREE.BoxGeometry(0.012, 0.06, 0.002),
+      new THREE.MeshStandardMaterial({ color: bmColors[i % bmColors.length], roughness: 0.7, side: THREE.DoubleSide })
+    );
+    // Right shelf is at +W/2 - 0.18 (shallow x) — bookmarks dangle on its inside face
+    const shelfY = 0.6 + (i % 3) * 0.7;
+    bm.position.set(W/2 - 0.45, shelfY + 0.25, -1.5 + i * 0.6);
+    bm.rotation.z = (Math.random() - 0.5) * 0.1;
+    scene.add(bm);
+  }
+
+  // Hanging trailing plant near the window bar (cascading from ceiling)
+  const planterX = barX - 1.0;
+  const planterZ = D/2 - 0.4;
+  const planter = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.13, 0.10, 0.12, 16),
+    new THREE.MeshStandardMaterial({ color: 0xf5efe2, roughness: 0.85 })
+  );
+  planter.position.set(planterX, H - 0.65, planterZ);
+  scene.add(planter);
+  // Hanging cord
+  const planterCord = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.003, 0.003, 0.65, 4),
+    new THREE.MeshStandardMaterial({ color: 0x888 })
+  );
+  planterCord.position.set(planterX, H - 0.32, planterZ);
+  scene.add(planterCord);
+  // Trailing vines (cascading planes)
+  for (let v = 0; v < 5; v++) {
+    const vineLen = 0.4 + Math.random() * 0.5;
+    const ang = (v / 5) * Math.PI * 2;
+    const ox = Math.cos(ang) * 0.09;
+    const oz = Math.sin(ang) * 0.09;
+    const vine = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.08, vineLen),
+      new THREE.MeshStandardMaterial({ color: 0x4a7a35, roughness: 0.85, side: THREE.DoubleSide })
+    );
+    vine.position.set(planterX + ox, H - 0.7 - vineLen/2, planterZ + oz);
+    vine.rotation.y = ang;
+    scene.add(vine);
+    // Add a few tiny leaves along the vine
+    for (let l = 0; l < 4; l++) {
+      const leaf = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.07, 0.05),
+        new THREE.MeshStandardMaterial({ color: 0x5c8c40, roughness: 0.85, side: THREE.DoubleSide })
+      );
+      leaf.position.set(planterX + ox * 1.4, H - 0.78 - l * (vineLen / 4), planterZ + oz * 1.4);
+      leaf.rotation.y = ang + (l % 2 ? 0.6 : -0.6);
+      leaf.rotation.z = (l % 2 ? 0.3 : -0.3);
+      scene.add(leaf);
+    }
+  }
+
+  // Stack of 3 books leaning on the cozy coffee table edge (like someone left them)
+  const stackColors = [0x6b1f2e, 0x2a4f31, 0xa67242];
+  for (let i = 0; i < 3; i++) {
+    const sb = new THREE.Mesh(
+      new THREE.BoxGeometry(0.16, 0.028, 0.22),
+      new THREE.MeshStandardMaterial({ color: stackColors[i], roughness: 0.7 })
+    );
+    sb.position.set(cozyX + 0.25, 0.46 + i * 0.03, cozyZ + 0.6);
+    sb.rotation.y = i * 0.08;
+    scene.add(sb);
+  }
+
+  // Small "open book" on the cozy sofa (left side, like someone got up mid-read)
+  const openBook = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.012, 0.18),
+    new THREE.MeshStandardMaterial({ color: 0xf2e8d4, roughness: 0.85 })
+  );
+  openBook.position.set(cozyX - 0.7, 0.55, cozyZ - 0.45);
+  openBook.rotation.y = 0.4;
+  openBook.rotation.x = -0.05;
+  scene.add(openBook);
+  // Book cover stripe (binding)
+  const bookSpine = new THREE.Mesh(
+    new THREE.BoxGeometry(0.012, 0.014, 0.18),
+    new THREE.MeshStandardMaterial({ color: 0x6b1f2e, roughness: 0.7 })
+  );
+  bookSpine.position.set(cozyX - 0.7, 0.557, cozyZ - 0.45);
+  bookSpine.rotation.y = 0.4;
+  scene.add(bookSpine);
+
   // ============ LIGHTING ============
-  const ambient = new THREE.AmbientLight(0xfff5e0, 0.4);
+  // Late-afternoon "golden hour" mood: warm grazing sun + dim cool fill + glowing pendants.
+  const ambient = new THREE.AmbientLight(0xfff0d0, 0.28);
   scene.add(ambient);
 
-  const sun = new THREE.DirectionalLight(0xfff8e0, 0.75);
-  sun.position.set(0, 6, 8);
+  // Warm sun coming low through the front facade (south-east), grazing the floor
+  const sun = new THREE.DirectionalLight(0xffd49b, 1.4);
+  sun.position.set(3, 4.5, 10);
   sun.castShadow = true;
-  sun.shadow.mapSize.width = 1024;
-  sun.shadow.mapSize.height = 1024;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
   sun.shadow.camera.left = -8;
   sun.shadow.camera.right = 8;
   sun.shadow.camera.top = 6;
   sun.shadow.camera.bottom = -6;
   sun.shadow.camera.near = 0.5;
   sun.shadow.camera.far = 25;
+  sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.02;
+  sun.shadow.radius = 4;
   scene.add(sun);
+
+  // Cool sky fill from above — gives walls some bounce light
+  const sky = new THREE.HemisphereLight(0xc8d8e8, 0x6b4523, 0.35);
+  scene.add(sky);
 
   // Pendant lights
   function addPendant(x, z, intensity) {
@@ -919,27 +1456,28 @@
     scene.add(shade);
 
     const bulb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xfff5d0, emissive: 0xffe5a0, emissiveIntensity: 1.5 })
+      new THREE.SphereGeometry(0.075, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xfff0c8, emissive: 0xffd680, emissiveIntensity: 3.2 })
     );
     bulb.position.set(x, H - 0.85, z);
     scene.add(bulb);
 
-    const light = new THREE.PointLight(0xfff0c0, intensity, 5.5, 1.7);
+    const light = new THREE.PointLight(0xffcd80, intensity * 18, 7, 1.8);
     light.position.set(x, H - 0.95, z);
     light.castShadow = true;
     light.shadow.mapSize.width = 256;
     light.shadow.mapSize.height = 256;
+    light.shadow.bias = -0.001;
     scene.add(light);
   }
 
-  addPendant(-2, 0.3);
-  addPendant(-2.5, -2.2);
-  addPendant(2.6, 0.7);
-  addPendant(2.55, -2.7);
-  addPendant(-3.8, 2.7, 0.6);
-  addPendant(-3.0, 2.7, 0.6);
-  addPendant(-2.2, 2.7, 0.6);
+  addPendant(2, 0.3);
+  addPendant(2.5, -2.2);
+  addPendant(-2.6, 0.7);
+  addPendant(-2.55, -2.7);
+  addPendant(3.8, 2.7, 0.6);
+  addPendant(3.0, 2.7, 0.6);
+  addPendant(2.2, 2.7, 0.6);
 
   // ============ CAMERA CONTROLS ============
   const target = new THREE.Vector3(0, 1.3, 0);
